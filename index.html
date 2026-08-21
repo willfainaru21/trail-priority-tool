@@ -980,7 +980,10 @@
       Coastal hazard and sea-level rise layers (FEMA flood zones, flooding potential, shoreline/cliff retreat, SLR inundation, tsunami hazard) are drawn from the <b>Coastal Hazards &amp; Sea-Level Rise Asset Vulnerability Assessment</b>, completed by Western Carolina University at Golden Gate National Recreation Area, Presidio of San Francisco, and Fort Point National Historic Site. Exposure, sensitivity, and vulnerability scores in that assessment are reported alongside Facilities Management Software System (FMSS) data for each asset, along with intermediate indicator scores and full methodology in the source report.
     </p>
     <p>
-      Trail condition, replacement value, deferred maintenance, and funding figures come from the <b>PMIS/FMSS Asset Management Reporting System</b>. Wildlife observations are fetched live from the <b>iNaturalist API</b>. San Francisco encampment and service-request data is fetched live from the <b>SF 311 API</b> (data.sfgov.org). The full GGNRA trail network reference layer is fetched live from the <b>NPS Public Trails dataset</b>.
+      Trail condition, replacement value, and deferred maintenance figures come from the <b>PMIS/FMSS Asset Management Reporting System</b> -- this public version shows those as relative tiers only, not exact dollar amounts or individual project titles/dates/funding sources. Wildlife observations are fetched live from the <b>iNaturalist API</b>. San Francisco encampment and service-request data is fetched live from the <b>SF 311 API</b> (data.sfgov.org). The full GGNRA trail network reference layer is fetched live from the <b>NPS Public Trails dataset</b>.
+    </p>
+    <p style="font-size:12.5px; color:var(--slate);">
+      This is the public version of an internal tool. Individual project details, exact facility condition figures, and exact replacement/deferred-maintenance dollar amounts are intentionally not included in this build's data files.
     </p>
   </div>
 </details>
@@ -988,14 +991,14 @@
 <div class="body-wrap">
   <div class="sidebar">
     <div class="panel-title">Sort by <span style="font-weight:400; text-transform:none; letter-spacing:normal; color:var(--slate); font-size:12px;">(check multiple to combine)</span></div>
+    <div style="font-size:12px; color:var(--slate); margin-bottom:6px; line-height:1.4;">Public version -- financial figures are shown as relative tiers only, not exact dollar amounts.</div>
     <div id="sortCheckboxes">
-      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="crv" checked> Replacement value</label>
-      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="dm"> Deferred maintenance</label>
-      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="fci"> Facility condition (worst first)</label>
+      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="crv" checked> Replacement value (relative tier)</label>
+      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="dm"> Deferred maintenance (relative tier)</label>
+      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="condition"> Facility condition (worst first)</label>
       <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="climate"> Climate risk</label>
       <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="projCount"> Number of nearby projects (fewest first)</label>
-      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="projFunding"> Money spent on nearby projects (least first)</label>
-      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="projAPI"> Nearby project priority (API)</label>
+      <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="projFunding"> Nearby project funding (relative tier, least first)</label>
       <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="nativeCount"> Native species observed nearby</label>
       <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="endangeredCount"> Endangered/threatened species nearby</label>
       <label class="checkbox-row"><input type="checkbox" class="sortMetricCb" value="hazardCount"> Hazard layers affecting trail</label>
@@ -1208,13 +1211,12 @@ function hazardDotsHtml(trailId){
 }
 
 const SORT_METRICS = {
-  crv:        { label:'Replacement value', get: d => d.CRV, fmt: v => '$' + Math.round(v).toLocaleString() },
-  dm:         { label:'Deferred maintenance', get: d => d.DM_R, fmt: v => '$' + Math.round(v).toLocaleString() },
-  fci:        { label:'Facility condition', get: d => d.FCI, fmt: v => v.toFixed(2) },
+  crv:        { label:'Replacement value (relative tier)', get: d => d.CrvTier, fmt: v => `Tier ${v}/5` },
+  dm:         { label:'Deferred maintenance (relative tier)', get: d => d.DmTier, fmt: v => `Tier ${v}/5` },
+  condition:  { label:'Facility condition (worst first)', get: d => ({GOOD:1,FAIR:2,POOR:3,SERIOUS:4})[d.Ranking] ?? null, fmt: v => ({1:'GOOD',2:'FAIR',3:'POOR',4:'SERIOUS'})[v] },
   climate:    { label:'Climate risk', get: d => d.ClimateScore, fmt: v => v.toFixed(1) + '/4' },
   projCount:  { label:'Nearby projects (fewest first)', get: d => getProjAggregates(d).count, fmt: v => v.toString(), lowerIsBetter: true },
-  projFunding:{ label:'Nearby project funding (least first)', get: d => getProjAggregates(d).totalFunded, fmt: v => '$' + Math.round(v).toLocaleString(), lowerIsBetter: true },
-  projAPI:    { label:'Nearby project priority (API)', get: d => getProjAggregates(d).avgAPI, fmt: v => v==null ? 'n/a' : v.toFixed(1) },
+  projFunding:{ label:'Nearby project funding (relative tier, least first)', get: d => getProjAggregates(d).fundingTierSum, fmt: v => `Tier sum: ${v}`, lowerIsBetter: true },
   nativeCount:    { label:'Native species observed nearby', get: d => getSpeciesCounts(d.ID) ? getSpeciesCounts(d.ID).native : null, fmt: v => v.toString() },
   endangeredCount:{ label:'Endangered/threatened species nearby', get: d => getSpeciesCounts(d.ID) ? getSpeciesCounts(d.ID).endangered : null, fmt: v => v.toString() },
   hazardCount:{ label:'Hazard layers affecting trail', get: d => getTrailHazards(d.ID).count, fmt: v => v.toString() + (v===1?' layer':' layers') },
@@ -1232,10 +1234,8 @@ function getProjAggregates(d){
   if (_projAggCache[d.ID]) return _projAggCache[d.ID];
   const nearby = getNearbyProjects(d);
   const count = nearby.length;
-  const totalFunded = nearby.reduce((s,p)=> s + (p.fnd||0), 0);
-  const apiVals = nearby.map(p=>p.api).filter(v=>v!=null);
-  const avgAPI = apiVals.length ? apiVals.reduce((a,b)=>a+b,0)/apiVals.length : null;
-  const result = { count, totalFunded, avgAPI };
+  const fundingTierSum = nearby.reduce((s,p)=> s + (p.fundingTier||0), 0);
+  const result = { count, fundingTierSum };
   _projAggCache[d.ID] = result;
   return result;
 }
@@ -1248,35 +1248,36 @@ let trailsForeverOnly = false;
    Matched to trail IDs by name/location; a few projects in the source list (trailhead-only projects,
    Muir Woods items outside this trail set, and a couple of ambiguous multi-segment names) couldn't be
    confidently matched to a single trail ID and are intentionally left out rather than guessed. */
+// Public build: priority level only, no project names/titles kept anywhere in this file.
 const TRAILS_FOREVER_MAP = {
-  126: { name: "Dipsea Bridge", priority: "High" },
-  168: { name: "Dias Hwy 1 Connector Trail", priority: "High" },
-  223: { name: "Old Springs Boardwalks", priority: "High" },
-  153: { name: "Middle Green Gulch Trail re-route", priority: "High" },
-  151: { name: "Upper Oakwood Valley trails (Alta to stairs)", priority: "High" },
-  159: { name: "Upper Oakwood Valley trails (Alta to stairs)", priority: "High" },
-  179: { name: "Lower Pirate's Cove Trail (phased)", priority: "High" },
-  403: { name: "Batteries to Bluffs", priority: "High" },
-  433: { name: "Mason Street Bike Path (Crissy Field)", priority: "High" },
-  298: { name: "Coastal Trail West Wash (El Camino connector)", priority: "High" },
-  351: { name: "Miramontes Trail reroute at Phleger", priority: "High" },
-  122: { name: "Coastal Trail at Wolf Ridge", priority: "Backburner" },
-  215: { name: "Lower Tennessee Valley", priority: "Backburner" },
-  162: { name: "Slacker Trail conversion", priority: "Backburner" },
-  161: { name: "Julian Trail conversion", priority: "Backburner" },
-  195: { name: "Miwok Trail (Miwok Steep, Old Springs to Bobcat)", priority: "Backburner" },
-  129: { name: "Homestead Valley Trails", priority: "Backburner" },
-  131: { name: "Homestead Valley Trails", priority: "Backburner" },
-  57:  { name: "Fort Baker bay trail improvements", priority: "Backburner" },
-  58:  { name: "Fort Baker bay trail improvements", priority: "Backburner" },
-  319: { name: "Sutro Baths - trails", priority: "Backburner" },
-  323: { name: "Sutro Baths - trails", priority: "Backburner" },
-  317: { name: "Sutro Baths - trails", priority: "Backburner" },
-  412: { name: "Crissy Promenade drainage improvements", priority: "Backburner" },
-  354: { name: "Skyline Trail/BART at Phleger", priority: "Backburner" },
-  359: { name: "Rancho trail improvements (Alta Vista)", priority: "Backburner" },
-  370: { name: "Rancho trail improvements (Spine)", priority: "Backburner" },
-  369: { name: "Rancho trail improvements (Scarper Ridge)", priority: "Backburner" }
+  126: { priority: "High" },
+  168: { priority: "High" },
+  223: { priority: "High" },
+  153: { priority: "High" },
+  151: { priority: "High" },
+  159: { priority: "High" },
+  179: { priority: "High" },
+  403: { priority: "High" },
+  433: { priority: "High" },
+  298: { priority: "High" },
+  351: { priority: "High" },
+  122: { priority: "Backburner" },
+  215: { priority: "Backburner" },
+  162: { priority: "Backburner" },
+  161: { priority: "Backburner" },
+  195: { priority: "Backburner" },
+  129: { priority: "Backburner" },
+  131: { priority: "Backburner" },
+  57:  { priority: "Backburner" },
+  58:  { priority: "Backburner" },
+  319: { priority: "Backburner" },
+  323: { priority: "Backburner" },
+  317: { priority: "Backburner" },
+  412: { priority: "Backburner" },
+  354: { priority: "Backburner" },
+  359: { priority: "Backburner" },
+  370: { priority: "Backburner" },
+  369: { priority: "Backburner" }
 };
 
 // Projects from the FY26 list that didn't confidently match a trail in your 181 -- either because
@@ -1286,17 +1287,17 @@ const TRAILS_FOREVER_MAP = {
 // against real NPS trail names by substring -- closing the gap you flagged, rather than leaving it
 // permanently unanswered.
 const TRAILS_FOREVER_UNMATCHED = [
-  { name: "Four Pedestrian Footbridges MUWO", priority: "High", hint: "footbridges" },
-  { name: "Cathedral Grove Trail MUWO", priority: "High", hint: "cathedral grove" },
-  { name: "Fort Mason Bay Trail", priority: "High", hint: "fort mason" },
-  { name: "Ocean Beach/Fort Funston trail", priority: "High", hint: "funston" },
-  { name: "Presidio Coastal Trail Phase III", priority: "High", hint: "presidio coastal" },
-  { name: "West Bluff parking bike path (Crissy Field)", priority: "High", hint: "west bluff" },
-  { name: "Long Avenue Bay Trail (Crissy Field)", priority: "High", hint: "long avenue" },
-  { name: "Fox Trail conversion", priority: "Backburner", hint: "fox trail" },
-  { name: "Northeast perimeter at Alcatraz", priority: "Backburner", hint: "perimeter" },
-  { name: "Lands End Accessible trail", priority: "Backburner", hint: "lands end accessible" },
-  { name: "Pedro Point trail planning with CCC", priority: "Backburner", hint: "pedro point" }
+  { priority: "High", hint: "footbridges" },
+  { priority: "High", hint: "cathedral grove" },
+  { priority: "High", hint: "fort mason" },
+  { priority: "High", hint: "funston" },
+  { priority: "High", hint: "presidio coastal" },
+  { priority: "High", hint: "west bluff" },
+  { priority: "High", hint: "long avenue" },
+  { priority: "Backburner", hint: "fox trail" },
+  { priority: "Backburner", hint: "perimeter" },
+  { priority: "Backburner", hint: "lands end accessible" },
+  { priority: "Backburner", hint: "pedro point" }
 ];
 
 function autoMatchTrailsForeverToNpsTrails(){
@@ -1306,7 +1307,7 @@ function autoMatchTrailsForeverToNpsTrails(){
       if (!d.isNpsOnly || TRAILS_FOREVER_MAP[d.ID]) return;
       const hay = d.Location.toLowerCase();
       if (hay.includes(proj.hint)){
-        TRAILS_FOREVER_MAP[d.ID] = { name: proj.name, priority: proj.priority };
+        TRAILS_FOREVER_MAP[d.ID] = { priority: proj.priority };
         matched++;
       }
     });
@@ -1348,20 +1349,16 @@ function getProjRadius(){
 }
 
 function getNearbyProjects(trail){
+  // Public build: PROJECTS here is the anonymized point set (lat/lon + funding tier only,
+  // no title/ID/exact dollar figure), so there's no per-project identity to de-duplicate on --
+  // every point within radius counts toward the aggregate.
   const radius = getProjRadius();
   const matches = [];
   PROJECTS.forEach(p=>{
     const dist = haversineMeters(trail.Latitude, trail.Longitude, p.lat, p.lon);
     if (dist <= radius) matches.push({ ...p, distance: Math.round(dist) });
   });
-  // collapse to one entry per project (Component ID), keeping the closest occurrence
-  const byComponent = {};
-  matches.forEach(m=>{
-    if (!byComponent[m.cid] || m.distance < byComponent[m.cid].distance){
-      byComponent[m.cid] = m;
-    }
-  });
-  return Object.values(byComponent).sort((a,b)=> (b.yr||0) - (a.yr||0) || a.distance-b.distance);
+  return matches;
 }
 
 /* ---------------- Nearby project markers on the map (mirrors the iNaturalist marker pattern) ---------------- */
@@ -1375,24 +1372,11 @@ function projectIcon(critical){
   });
 }
 function plotNearbyProjectMarkers(trailLike){
-  if (!projectMarkersLayer) return; // map not initialized yet
+  // Public build: individual project locations aren't shown on the map, even anonymously --
+  // point clustering alone could reveal where investment is concentrated. The count/tier is
+  // still available via the Nearby Projects tab and used internally for ranking.
+  if (!projectMarkersLayer) return;
   projectMarkersLayer.clearLayers();
-  if (!trailLike) return;
-  const nearby = getNearbyProjects(trailLike);
-  nearby.forEach(p=>{
-    const isCritical = p.crit === 'Y';
-    const marker = L.marker([p.lat, p.lon], { icon: projectIcon(isCritical) });
-    marker.bindPopup(`
-      <b>${escapeHtml(p.t || 'Untitled project')}</b><br>
-      ${p.loc ? escapeHtml(p.loc) + '<br>' : ''}
-      ${p.yr ? `Year: ${p.yr}<br>` : ''}
-      ${p.fnd ? `Funded: $${Math.round(p.fnd).toLocaleString()}<br>` : ''}
-      ${p.api != null ? `API: ${p.api}<br>` : ''}
-      ${isCritical ? '<span style="color:#A6472F;font-weight:600;">Critical</span><br>' : ''}
-      <span style="font-size:11px;color:#888;">${p.distance}m from trail</span>
-    `);
-    projectMarkersLayer.addLayer(marker);
-  });
 }
 
 function statRow(label, value, isNa){
@@ -1421,20 +1405,17 @@ function renderFullStats(d){
   const speciesCounts = getSpeciesCounts(d.ID);
 
   const rows = [
-    statRow('Replacement value', d.CRV!=null ? '$'+Math.round(d.CRV).toLocaleString() : null, d.CRV==null),
-    statRow('Deferred maintenance', d.DM_R!=null ? '$'+Math.round(d.DM_R).toLocaleString() : null, d.DM_R==null),
-    statRow('Facility condition index', d.FCI!=null ? d.FCI.toFixed(2) : null, d.FCI==null),
+    statRow('Replacement value (relative tier)', d.CrvTier!=null ? `Tier ${d.CrvTier}/5` : null, d.CrvTier==null),
+    statRow('Deferred maintenance (relative tier)', d.DmTier!=null ? `Tier ${d.DmTier}/5` : null, d.DmTier==null),
     statRow('Condition ranking', d.Ranking || null, !d.Ranking),
     statRow('Climate risk score', d.ClimateScore!=null ? d.ClimateScore.toFixed(1)+'/4' + (d.ClimateRank ? ' ('+d.ClimateRank+')' : '') : null, d.ClimateScore==null),
     statRow('Historic asset', d.Historic ? (d.Historic==='Y' ? 'Yes' : 'No') : null, !d.Historic),
-    statRow('Trails Forever project', TRAILS_FOREVER_MAP[d.ID] ? `${TRAILS_FOREVER_MAP[d.ID].name} (${TRAILS_FOREVER_MAP[d.ID].priority} priority)` : null, !TRAILS_FOREVER_MAP[d.ID]),
+    statRow('Trails Forever priority project', TRAILS_FOREVER_MAP[d.ID] ? `${TRAILS_FOREVER_MAP[d.ID].priority} priority (details not shown publicly)` : null, !TRAILS_FOREVER_MAP[d.ID]),
     statRow('Area / County', (d.Area || d.County) ? `${d.Area || ''}${d.Area && d.County ? ', ' : ''}${d.County || ''}` : null, !(d.Area || d.County)),
     statRow('Use', d.TRLUSE || null, !d.TRLUSE),
     statRow('Surface', d.TRLSURFACE || null, !d.TRLSURFACE),
     statRow('Status', d.TRLSTATUS || null, !d.TRLSTATUS),
-    statRow('Nearby projects', `${projAgg.count} within ${getProjRadius()}m`, false),
-    statRow('Nearby project funding', projAgg.totalFunded ? '$'+Math.round(projAgg.totalFunded).toLocaleString() : '$0', false),
-    statRow('Nearby project avg. API', projAgg.avgAPI!=null ? projAgg.avgAPI.toFixed(1) : null, projAgg.avgAPI==null),
+    statRow('Nearby projects', `${projAgg.count} within ${getProjRadius()}m (titles/funding not shown publicly)`, false),
     statRow('Hazard layers affecting trail', hazardsList.length ? hazardsList.map(k=>TRAIL_HAZARD_LABELS[k]).join(', ') : 'None', false),
     statRow('Native species nearby', speciesCounts ? speciesCounts.native : null, !speciesCounts),
     statRow('Endangered/threatened species nearby', speciesCounts ? speciesCounts.endangered : null, !speciesCounts),
@@ -1454,38 +1435,19 @@ document.getElementById('fullStatsToggle').addEventListener('click', ()=>{
 function renderProjectsSummary(d){
   const el = document.getElementById('projSummary');
   if (!d){
-    el.innerHTML = '<div class="call-summary-empty">Click a trail to see nearby projects here.</div>';
+    el.innerHTML = '<div class="call-summary-empty">Click a trail to see nearby project activity here.</div>';
     return;
   }
   const radius = getProjRadius();
-  const projects = getNearbyProjects(d);
-
-  if (projects.length === 0){
-    el.innerHTML = `<div class="call-summary-header">
-      <div class="call-summary-title">${escapeHtml(d.Location)} \u2014 0 projects within ${radius}m</div>
-      <div style="font-size:13px; color:var(--slate);">Try widening the project search radius in the sidebar.</div>
-    </div>`;
-    return;
-  }
-
-  const items = projects.map(p=>{
-    const fnd = p.fnd!=null ? `$${p.fnd.toLocaleString()}` : (p.req!=null ? `$${p.req.toLocaleString()} requested` : 'Funding N/A');
-    const apiStr = p.api!=null ? ` \u2014 API ${p.api}` : '';
-    return `<div class="call-item">
-      <div class="call-item-top">
-        <span class="call-item-cat" style="color:var(--forest-dim);">${escapeHtml(p.t || 'Untitled project')}</span>
-        <span class="call-item-date">${p.yr || ''}</span>
-      </div>
-      <div class="call-item-sub">${p.loc ? escapeHtml(p.loc) + ' \u2014 ' : ''}${p.distance}m away${p.crit==='Y' ? ' \u2014 Critical' : ''}${apiStr}</div>
-      <div class="call-item-sub">${fnd}${p.fund ? ' \u2014 ' + escapeHtml(p.fund) : ''}${p.cstat ? ' \u2014 ' + escapeHtml(p.cstat) : ''}</div>
-    </div>`;
-  }).join('');
+  const agg = getProjAggregates(d);
 
   el.innerHTML = `
     <div class="call-summary-header">
-      <div class="call-summary-title">${escapeHtml(d.Location)} \u2014 ${projects.length} project${projects.length!==1?'s':''} within ${radius}m</div>
+      <div class="call-summary-title">${escapeHtml(d.Location)} \u2014 ${agg.count} nearby project${agg.count!==1?'s':''} within ${radius}m</div>
+      <div style="font-size:13px; color:var(--slate); margin-top:4px; line-height:1.5;">
+        This public version doesn't list individual projects, titles, or dollar figures -- only a count and a relative funding tier, used internally for ranking. Project-level detail is available in the internal copy of this tool.
+      </div>
     </div>
-    <div class="call-summary-list">${items}</div>
   `;
 }
 
@@ -2090,7 +2052,7 @@ function render(){
             <span>${escapeHtml(d.Area || '')}${d.Area && d.County ? ', ' : ''}${escapeHtml(d.County || '')}</span>
             ${d.Ranking ? `<span class="chip chip-cond-${d.Ranking}">${d.Ranking}</span>` : `<span class="chip" style="background:#E4E2D8; color:var(--slate);" title="Not in the PMIS/FMSS spreadsheet -- no condition assessment available">NPS reference</span>`}
             ${d.Historic==='Y' ? '<span class="chip chip-historic">Historic</span>' : ''}
-            ${TRAILS_FOREVER_MAP[d.ID] ? `<span class="chip chip-trailsforever" title="Trails Forever project: ${escapeHtml(TRAILS_FOREVER_MAP[d.ID].name)} (${TRAILS_FOREVER_MAP[d.ID].priority} priority)">\u2605 Trails Forever${TRAILS_FOREVER_MAP[d.ID].priority==='Backburner' ? ' (backburner)' : ''}</span>` : ''}
+            ${TRAILS_FOREVER_MAP[d.ID] ? `<span class="chip chip-trailsforever" title="Trails Forever ${TRAILS_FOREVER_MAP[d.ID].priority} priority project (details not shown publicly)">\u2605 Trails Forever${TRAILS_FOREVER_MAP[d.ID].priority==='Backburner' ? ' (backburner)' : ''}</span>` : ''}
             ${projBadge}
           </div>
         </div>
@@ -3213,24 +3175,15 @@ async function analyzeReroute(){
   statusEl.textContent = `Analyzing a ${lengthKm.toFixed(2)}km sketched route\u2026`;
   resultsEl.innerHTML = '';
 
-  // 1) nearby existing PMIS/FMSS projects along the sketch
+  // 1) nearby existing PMIS/FMSS project activity along the sketch (count only, public build)
   const projRadiusKm = getProjRadius() / 1000;
   const nearbyProjects = PROJECTS
     .map(p => ({ ...p, distKm: distanceToRouteKm(p.lat, p.lon, routePoints) }))
     .filter(p => p.distKm <= projRadiusKm);
-  const byCid = {};
-  nearbyProjects.forEach(p => { if (!byCid[p.cid] || p.distKm < byCid[p.cid].distKm) byCid[p.cid] = p; });
-  const projList = Object.values(byCid).sort((a,b)=> a.distKm - b.distKm).slice(0, 10);
 
-  const projHtml = projList.length
-    ? projList.map(p=>`<div class="call-item">
-        <div class="call-item-top">
-          <span class="call-item-cat" style="color:var(--forest-dim);">${escapeHtml(p.t || 'Untitled project')}</span>
-          <span class="call-item-date">${p.yr || ''}</span>
-        </div>
-        <div class="call-item-sub">${p.loc ? escapeHtml(p.loc) + ' \u2014 ' : ''}${Math.round(p.distKm*1000)}m from route${p.crit==='Y' ? ' \u2014 Critical' : ''}</div>
-      </div>`).join('')
-    : `<div class="call-summary-empty">No existing PMIS/FMSS projects within ${getProjRadius()}m of this sketch.</div>`;
+  const projHtml = nearbyProjects.length
+    ? `<div class="call-summary-empty">${nearbyProjects.length} nearby project${nearbyProjects.length!==1?'s':''} within ${getProjRadius()}m of this sketch (titles/funding not shown publicly).</div>`
+    : `<div class="call-summary-empty">No existing PMIS/FMSS project activity within ${getProjRadius()}m of this sketch.</div>`;
 
   // 2) iNaturalist activity sampled along the sketch
   const samples = sampleRoutePoints(routePoints, Math.min(8, Math.max(2, Math.round(lengthKm / 0.3))));
@@ -3305,20 +3258,33 @@ document.getElementById('rerouteResults').addEventListener('click', e=>{
 }
 
 async function loadCoreData(){
-  const [trailsRes, hazardRes, projectsRes, geomRes] = await Promise.all([
-    fetch('data/trails_data.json'),
-    fetch('data/hazard_data.json'),
-    fetch('data/projects_data.json'),
-    fetch('data/trail_geometries.json')
-  ]);
-  if (!trailsRes.ok || !hazardRes.ok || !projectsRes.ok || !geomRes.ok){
-    throw new Error('One or more data files failed to load (' + 
-      [trailsRes,hazardRes,projectsRes,geomRes].map(r=>r.status).join(', ') + ')');
+  const files = [
+    { key: 'DATA', label: 'trails_data_public.json', url: 'data/trails_data_public.json' },
+    { key: 'HAZARD_DATA', label: 'hazard_data.json', url: 'data/hazard_data.json' },
+    { key: 'PROJECTS', label: 'projects_data_public.json', url: 'data/projects_data_public.json' },
+    { key: 'TRAIL_GEOMS', label: 'trail_geometries.json', url: 'data/trail_geometries.json' }
+  ];
+  const results = await Promise.all(files.map(f => fetch(f.url)));
+
+  const badStatus = files.filter((f,i) => !results[i].ok).map((f,i) => `${f.label} (HTTP ${results[files.indexOf(f)].status})`);
+  if (badStatus.length){
+    throw new Error(`Couldn't fetch: ${badStatus.join(', ')}`);
   }
-  DATA = await trailsRes.json();
-  HAZARD_DATA = await hazardRes.json();
-  PROJECTS = await projectsRes.json();
-  TRAIL_GEOMS = await geomRes.json();
+
+  const parsed = {};
+  for (let i = 0; i < files.length; i++){
+    const text = await results[i].text();
+    try{
+      parsed[files[i].key] = JSON.parse(text);
+    } catch(parseErr){
+      const sizeKB = (text.length / 1024).toFixed(1);
+      throw new Error(`${files[i].label} didn't parse as valid JSON (received ${sizeKB}KB -- likely truncated during upload). Re-upload this specific file and make sure its full size matches the original.`);
+    }
+  }
+  DATA = parsed.DATA;
+  HAZARD_DATA = parsed.HAZARD_DATA;
+  PROJECTS = parsed.PROJECTS;
+  TRAIL_GEOMS = parsed.TRAIL_GEOMS;
 }
 
 loadCoreData().then(initApp).catch(err=>{
